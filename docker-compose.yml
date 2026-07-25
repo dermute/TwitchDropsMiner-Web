@@ -1,0 +1,24 @@
+services:
+  twitch-drops-miner:
+    image: ghcr.io/dermute/twitchdropsminer-web:latest
+    container_name: twitch-drops-miner
+    restart: unless-stopped
+    ports:
+      # Web interface.
+      - "5800:5800"
+    volumes:
+      - ./config:/config
+    environment:
+      # Timezone, used for the timestamps shown by the miner.
+      - TZ=Europe/Berlin
+      # Owner of the files in /config.
+      - USER_ID=1000
+      - GROUP_ID=1000
+      # Size of the virtual screen the miner is drawn on.
+      - DISPLAY_WIDTH=1280
+      - DISPLAY_HEIGHT=768
+      # Protect the web interface with a login.  Strongly recommended as soon as
+      # the container is reachable by anything but you.
+      # - WEB_AUTHENTICATION=1
+      # - WEB_AUTHENTICATION_USERNAME=admin
+      # - WEB_AUTHENTICATION_PASSWORD=changeme
