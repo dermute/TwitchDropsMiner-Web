@@ -4,9 +4,9 @@
 web browser. No VM, no desktop, no X server on the host — just a container that
 keeps mining 24/7 and a tab you open when you want to look at it.
 
-The container downloads the official Linux build published by [DevilXD][tdm],
-keeps it up-to-date on its own, and runs it on a virtual screen that is streamed
-to the browser over [noVNC][novnc]. The GUI plumbing is provided by
+The image ships the official Linux build published by [DevilXD][tdm] and runs it
+on a virtual screen that is streamed to the browser over [noVNC][novnc]. Nothing
+is downloaded when a container starts. The GUI plumbing is provided by
 [jlesage/baseimage-gui][baseimage].
 
 ![The miner, running in a browser tab](screenshot.png)
@@ -65,42 +65,39 @@ Everything the miner writes is inside the `/config` volume:
 | `/config/app/log.txt`     | Runtime log, only written when `TDM_ARGS` has `--log` |
 | `/config/xdg/`            | XDG directories of the container user            |
 
-The miner stores its files next to its own executable, which is why the
-executable lives in the volume rather than in the image.
+The miner stores its files next to its own executable, so the executable has to
+live in the volume. It is not downloaded there: the image carries it in
+`/opt/tdm/app`, and each start copies it into `/config/app` if what is there
+does not match the image. Everything the miner itself created is left alone, so
+settings and the login survive both restarts and image updates.
 
 ## Staying up-to-date
 
-The image does not ship a copy of the miner. Upstream publishes its current
-builds to a rolling `dev-build` release, and the container follows it directly:
+The image is self-contained — miner included — and nothing is downloaded when a
+container starts. Updating the miner therefore means pulling a new image:
 
-- On the first start, the current upstream build is downloaded into the volume.
-- On every following start, it is updated to the current upstream build.
-- While the container runs, it checks once a day (`TDM_UPDATE_CHECK_INTERVAL`)
-  and restarts the miner when a new build was published. Mining resumes right
-  after — progress lives on Twitch's side, not in the container.
+```sh
+docker compose pull && docker compose up -d
+```
 
-So the miner stays current without ever pulling a new image. The image is
-rebuilt weekly anyway, to pick up base image updates.
+The image is rebuilt weekly from upstream's rolling `dev-build` release, so
+pulling gets you a miner that is at most a week old. On the next start, the new
+build replaces the one in your volume. Mining resumes right after — progress
+lives on Twitch's side, not in the container.
 
-Set `TDM_AUTO_UPDATE=0` to freeze the miner at whatever build is installed in
-the volume. The container needs to reach GitHub on its very first start,
-otherwise there is nothing to run.
+If you want it fresher, either change the `cron:` line in
+[`.github/workflows/build.yml`](.github/workflows/build.yml) to run daily and
+build it yourself, or trigger the workflow by hand from the Actions tab.
 
 ## Configuration
 
 ### This image
 
-| Variable                    | Default              | Description                                                                                   |
-| --------------------------- | -------------------- | --------------------------------------------------------------------------------------------- |
-| `TDM_ARGS`                  | `-v`                 | Arguments for the miner. `-v` reports warnings, `-vv` info, `-vvvv` debug; `--log` also writes `log.txt`. |
-| `TDM_AUTO_UPDATE`           | `1`                  | Update the miner from the upstream release.                                                    |
-| `TDM_UPDATE_CHECK_INTERVAL` | `86400`              | Seconds between update checks while running. `0` only checks at start.                         |
-| `TDM_UPDATE_RESTART`        | `1`                  | Restart the miner right away when an update was installed.                                     |
-| `TDM_RELEASE_TAG`           | `dev-build`          | Upstream release tag to follow.                                                                |
-| `TDM_UPSTREAM_REPO`         | `DevilXD/TwitchDropsMiner` | Upstream repository to fetch builds from.                                                |
-| `TDM_RESTART_DELAY`         | `300`                | Seconds to wait before restarting after the miner failed.                                      |
-| `TDM_DATA_DIR`              | `/config/app`        | Where the miner is installed.                                                                  |
-| `GITHUB_TOKEN`              | (unset)              | Optional, raises the GitHub API rate limit used for update checks.                             |
+| Variable            | Default       | Description                                                                                   |
+| ------------------- | ------------- | --------------------------------------------------------------------------------------------- |
+| `TDM_ARGS`          | `-v`          | Arguments for the miner. `-v` reports warnings, `-vv` info, `-vvvv` debug; `--log` also writes `log.txt`. |
+| `TDM_RESTART_DELAY` | `300`         | Seconds to wait before restarting after the miner failed.                                      |
+| `TDM_DATA_DIR`      | `/config/app` | Where the miner is installed.                                                                  |
 
 ### Base image
 
@@ -150,38 +147,43 @@ upstream publishes.
 ## Building it yourself
 
 ```sh
-docker build -t twitch-drops-miner .
+docker build -t twitchdropsminer-web .
 ```
+
+The build downloads the miner from the upstream release and copies it into the
+image, in a stage of its own — that download is the only network access the
+build needs beyond the base image.
 
 Useful build arguments:
 
-- `TDM_RELEASE_TAG` — upstream release the container downloads the miner from.
-  Default `dev-build`.
+- `TDM_RELEASE_TAG` — upstream release to take the miner from. Default
+  `dev-build`.
+- `TDM_BUILD_ID` — an arbitrary string identifying the upstream build. Change it
+  to stop a rebuild from reusing the cached download layer; the workflow sets it
+  to the current upstream asset ids.
 - `BASEIMAGE_VERSION` — tag of `jlesage/baseimage-gui` to build on.
-- `DOCKER_IMAGE_VERSION` — version string baked into the image labels.
-
-The build itself does not touch the upstream project: nothing is downloaded from
-it until a container starts.
+- `DOCKER_IMAGE_VERSION` / `TDM_VERSION` — version strings for the image labels
+  and the title bar.
 
 ## Troubleshooting
 
 **The web interface is up but the window is empty.** The miner is probably
 restarting. Check `docker logs twitch-drops-miner`.
 
-**`could not check for a newer build`.** The container could not reach the GitHub
-API, or ran into its anonymous rate limit. The already installed build keeps
-running; set `GITHUB_TOKEN` if you hit the rate limit regularly.
+**The miner is older than the one in the image.** The volume is only synced at
+start, so restart the container after pulling a new image.
 
 **Reset everything.** Stop the container and delete the `/config` volume. The
 next start reinstalls the miner and asks you to log in again.
 
 ## What this repository actually contains
 
-A Dockerfile, a handful of shell scripts, and a favicon. The only thing taken
-from the upstream project at runtime is the release asset
+A Dockerfile, three shell scripts, and a favicon. The only thing taken from the
+upstream project is the release asset
 `Twitch.Drops.Miner.Linux.PyInstaller-<arch>.zip` — a single executable and its
-`manual.txt` — downloaded unmodified from the `dev-build` release. The favicon is
-converted from the upstream `icons/pickaxe.ico`.
+`manual.txt` — which the build downloads unmodified from the `dev-build` release
+and copies into the image. The favicon is converted from the upstream
+`icons/pickaxe.ico`.
 
 ## Credits
 
@@ -197,7 +199,7 @@ Built with [Claude Opus 5](https://claude.com/claude-code).
 The contents of this repository are released under the [MIT license](LICENSE).
 Twitch Drops Miner itself is distributed under its own
 [MIT license](https://github.com/DevilXD/TwitchDropsMiner/blob/master/LICENSE)
-and is downloaded, unmodified, from the upstream releases.
+and is redistributed here unmodified, exactly as published upstream.
 
 This project is not affiliated with Twitch, DevilXD, or jlesage.
 

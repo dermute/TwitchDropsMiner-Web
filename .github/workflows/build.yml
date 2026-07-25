@@ -10,8 +10,8 @@ on:
     branches:
       - main
   schedule:
-    # Rebuild weekly, to pick up base image updates.  The miner itself is
-    # downloaded by the container, so it does not need a rebuild to be current.
+    # Rebuild weekly.  This is what picks up new upstream miner builds and base
+    # image updates, since the image carries the miner.
     - cron: "17 4 * * 1"
   workflow_dispatch:
 
@@ -36,9 +36,33 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          find rootfs -type f \
-            \( -name "*.sh" -o -name run -o -name interval -o -name disabled \) \
-            -print0 | xargs -0 shellcheck --shell=sh
+          find . -name "*.sh" -not -path "./.git/*" -print0 \
+            | xargs -0 shellcheck --shell=sh
+
+      - name: Resolve the current upstream build
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release="$(gh api "repos/DevilXD/TwitchDropsMiner/releases/tags/${TDM_RELEASE_TAG}")"
+          build_id="$(
+            printf '%s' "${release}" \
+              | jq -r '[.assets[]
+                        | select(.name | startswith("Twitch.Drops.Miner.Linux.PyInstaller"))
+                        | "\(.id):\(.updated_at)"]
+                       | sort | join(",")'
+          )"
+          uploaded="$(
+            printf '%s' "${release}" \
+              | jq -r '[.assets[]
+                        | select(.name | startswith("Twitch.Drops.Miner.Linux.PyInstaller"))
+                        | .updated_at]
+                       | (sort | last)[0:10]'
+          )"
+          echo "Upstream build: ${build_id}"
+          echo "build_id=${build_id}" >> "${GITHUB_OUTPUT}"
+          echo "version=${TDM_RELEASE_TAG} (${uploaded})" >> "${GITHUB_OUTPUT}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -77,6 +101,10 @@ jobs:
           build-args: |
             DOCKER_IMAGE_VERSION=${{ steps.meta.outputs.version }}
             TDM_RELEASE_TAG=${{ env.TDM_RELEASE_TAG }}
+            TDM_BUILD_ID=${{ steps.upstream.outputs.build_id }}
+            TDM_VERSION=${{ steps.upstream.outputs.version }}
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false

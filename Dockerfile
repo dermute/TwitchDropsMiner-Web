@@ -1,18 +1,63 @@
 #
-# Twitch Drops Miner Dockerfile
+# TwitchDropsMiner-Web Dockerfile
 #
 # https://github.com/dermute/TwitchDropsMiner-Web
 #
 
 ARG BASEIMAGE_VERSION=ubuntu-24.04-v4.12.6
 
+#
+# Download the upstream Twitch Drops Miner build.
+#
+# This stage runs on the architecture of the build machine and only downloads a
+# file, so building the arm64 image does not need emulation for it.
+#
+FROM --platform=${BUILDPLATFORM} debian:trixie-slim AS miner
+
+# Architecture of the image being built, provided by BuildKit.
+ARG TARGETARCH
+# Upstream release to take the miner from.  "dev-build" is the rolling release
+# DevilXD publishes the current builds to.
+ARG TDM_RELEASE_TAG=dev-build
+ARG TDM_UPSTREAM_REPO=DevilXD/TwitchDropsMiner
+# Identifier of the upstream build to install.  The build workflow sets it to
+# the current one, which is what makes a rebuild pick up a newer upstream build
+# instead of reusing the cached layer below.
+ARG TDM_BUILD_ID=
+
+RUN \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        findutils \
+        jq \
+        unzip && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY build-fetch-miner.sh /usr/local/bin/fetch-miner.sh
+
+# The token is optional and only avoids the anonymous GitHub API rate limit.  It
+# is mounted as a build secret, so that it does not end up in the image.
+RUN \
+    --mount=type=secret,id=github_token \
+    echo "Installing upstream build: ${TDM_BUILD_ID:-current}" && \
+    GITHUB_TOKEN="$(cat /run/secrets/github_token 2> /dev/null || true)" \
+    TDM_UPSTREAM_REPO="${TDM_UPSTREAM_REPO}" \
+    /usr/local/bin/fetch-miner.sh \
+        --dest /opt/tdm/app \
+        --tag "${TDM_RELEASE_TAG}" \
+        --arch "${TARGETARCH}"
+
+#
+# Build the image.
+#
 FROM jlesage/baseimage-gui:${BASEIMAGE_VERSION}
 
 # Version of this Docker image, provided by the build workflow.
 ARG DOCKER_IMAGE_VERSION=
-# Upstream release the miner is downloaded from.  "dev-build" is the rolling
-# release DevilXD publishes the current builds to.
-ARG TDM_RELEASE_TAG=dev-build
+# Version of the miner in this image, provided by the build workflow.
+ARG TDM_VERSION=dev-build
 
 WORKDIR /tmp
 
@@ -20,12 +65,9 @@ WORKDIR /tmp
 # Python and Tk, but still links against the X libraries of the system.
 RUN \
     add-pkg \
-        # Needed to download the upstream release.
-        curl \
+        # The miner validates the certificate of every Twitch connection, and
+        # the base image ships no CA bundle.
         ca-certificates \
-        unzip \
-        jq \
-        # Needed by the miner itself.
         libx11-6 \
         libxext6 \
         libxrender1 \
@@ -43,6 +85,7 @@ RUN \
 
 # Add files.
 COPY rootfs/ /
+COPY --from=miner /opt/tdm/app /opt/tdm/app
 
 # Generate and install favicons.  The icon is the one of the upstream project.
 COPY icon.png /tmp/app-icon.png
@@ -53,7 +96,7 @@ RUN \
 # Set internal environment variables.
 RUN \
     set-cont-env APP_NAME "Twitch Drops Miner" && \
-    set-cont-env APP_VERSION "${TDM_RELEASE_TAG}" && \
+    set-cont-env APP_VERSION "${TDM_VERSION}" && \
     set-cont-env DOCKER_IMAGE_VERSION "${DOCKER_IMAGE_VERSION}" && \
     set-cont-env DISABLE_GLX 1 && \
     true
@@ -64,13 +107,6 @@ ENV \
     KEEP_APP_RUNNING=1 \
     # Where the miner and its data live.  Must be under /config to be persisted.
     TDM_DATA_DIR=/config/app \
-    # Upstream release the miner is downloaded from and kept in sync with.
-    TDM_RELEASE_TAG="${TDM_RELEASE_TAG}" \
-    TDM_UPSTREAM_REPO=DevilXD/TwitchDropsMiner \
-    # Keep the miner up-to-date with the upstream release.
-    TDM_AUTO_UPDATE=1 \
-    TDM_UPDATE_CHECK_INTERVAL=86400 \
-    TDM_UPDATE_RESTART=1 \
     # Command line arguments passed to the miner.
     TDM_ARGS=-v \
     # Delay before the miner is restarted after it failed.
