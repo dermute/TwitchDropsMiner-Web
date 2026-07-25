@@ -10,23 +10,37 @@ on:
     branches:
       - main
   schedule:
-    # Rebuild weekly.  This is what picks up new upstream miner builds and base
-    # image updates, since the image carries the miner.
-    - cron: "17 4 * * 1"
+    # Every day: publish a new image when upstream published a new miner build.
+    - cron: "17 4 * * *"
+    # Every Monday: rebuild regardless, to pick up OS package updates.
+    - cron: "43 4 * * 1"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even if the upstream build has not changed"
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
   # Upstream release the image follows.
   TDM_RELEASE_TAG: dev-build
+  # Cron expression of the weekly rebuild above.
+  WEEKLY_REBUILD_CRON: "43 4 * * 1"
+  # Label the upstream build id is recorded in.
+  BUILD_ID_LABEL: io.github.dermute.tdm.upstream-build-id
 
 jobs:
-  build:
-    name: Build and publish
+  check:
+    name: Check for a new upstream build
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
+      packages: read
+    outputs:
+      build_id: ${{ steps.upstream.outputs.build_id }}
+      version: ${{ steps.upstream.outputs.version }}
+      changed: ${{ steps.decide.outputs.changed }}
 
     steps:
       - name: Checkout code
@@ -60,9 +74,84 @@ jobs:
                         | .updated_at]
                        | (sort | last)[0:10]'
           )"
+          if [ -z "${build_id}" ]; then
+            echo "Release '${TDM_RELEASE_TAG}' has no Linux PyInstaller assets." >&2
+            exit 1
+          fi
           echo "Upstream build: ${build_id}"
           echo "build_id=${build_id}" >> "${GITHUB_OUTPUT}"
           echo "version=${TDM_RELEASE_TAG} (${uploaded})" >> "${GITHUB_OUTPUT}"
+
+      - name: Read the upstream build of the published image
+        id: published
+        run: |
+          set -uo pipefail
+          image="${REGISTRY}/${GITHUB_REPOSITORY,,}:latest"
+          # An image that does not exist yet, or one built before this label was
+          # introduced, reads as unknown and causes a build.
+          build_id="$(
+            docker buildx imagetools inspect "${image}" --format '{{ json .Image }}' 2> /dev/null \
+              | jq -r --arg label "${BUILD_ID_LABEL}" \
+                  '[.[].config.Labels[$label] // ""] | first // ""' \
+              || true
+          )"
+          echo "Published build: ${build_id:-<unknown>}"
+          echo "build_id=${build_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Decide whether to build
+        id: decide
+        env:
+          UPSTREAM_BUILD_ID: ${{ steps.upstream.outputs.build_id }}
+          PUBLISHED_BUILD_ID: ${{ steps.published.outputs.build_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          changed=true
+          if [ "${FORCE}" = "true" ]; then
+            reason="a build was forced"
+          elif [ "${EVENT_NAME}" != "schedule" ] && [ "${EVENT_NAME}" != "workflow_dispatch" ]; then
+            reason="the repository changed (${EVENT_NAME})"
+          elif [ "${EVENT_SCHEDULE}" = "${WEEKLY_REBUILD_CRON}" ]; then
+            reason="it is the weekly rebuild, picking up OS package updates"
+          elif [ -z "${PUBLISHED_BUILD_ID}" ]; then
+            reason="the published image does not record an upstream build"
+          elif [ "${PUBLISHED_BUILD_ID}" != "${UPSTREAM_BUILD_ID}" ]; then
+            reason="upstream published a new build"
+          else
+            changed=false
+            reason="upstream has not published a new build"
+          fi
+
+          echo "changed=${changed}" >> "${GITHUB_OUTPUT}"
+
+          {
+            if [ "${changed}" = "true" ]; then
+              echo "### Building — ${reason}"
+            else
+              echo "### Skipping the build — ${reason}"
+            fi
+            echo
+            echo "| | Upstream build |"
+            echo "| --- | --- |"
+            echo "| Latest | \`${UPSTREAM_BUILD_ID}\` |"
+            echo "| Published | \`${PUBLISHED_BUILD_ID:-unknown}\` |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build:
+    name: Build and publish
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -101,8 +190,8 @@ jobs:
           build-args: |
             DOCKER_IMAGE_VERSION=${{ steps.meta.outputs.version }}
             TDM_RELEASE_TAG=${{ env.TDM_RELEASE_TAG }}
-            TDM_BUILD_ID=${{ steps.upstream.outputs.build_id }}
-            TDM_VERSION=${{ steps.upstream.outputs.version }}
+            TDM_BUILD_ID=${{ needs.check.outputs.build_id }}
+            TDM_VERSION=${{ needs.check.outputs.version }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha

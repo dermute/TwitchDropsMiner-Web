@@ -58,6 +58,8 @@ FROM jlesage/baseimage-gui:${BASEIMAGE_VERSION}
 ARG DOCKER_IMAGE_VERSION=
 # Version of the miner in this image, provided by the build workflow.
 ARG TDM_VERSION=dev-build
+# Identifier of the upstream build in this image, recorded as a label below.
+ARG TDM_BUILD_ID=
 
 WORKDIR /tmp
 
@@ -120,8 +122,10 @@ VOLUME ["/config"]
 #   - 5900: VNC.
 EXPOSE 5800 5900
 
-# Metadata.
+# Metadata.  The upstream build id is what the build workflow reads back off the
+# published image, to know whether a newer miner has been released.
 LABEL \
+      io.github.dermute.tdm.upstream-build-id="${TDM_BUILD_ID}" \
       org.label-schema.name="TwitchDropsMiner-Web" \
       org.label-schema.description="Docker container for Twitch Drops Miner" \
       org.label-schema.version="${DOCKER_IMAGE_VERSION:-}" \

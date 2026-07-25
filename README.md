@@ -80,14 +80,27 @@ container starts. Updating the miner therefore means pulling a new image:
 docker compose pull && docker compose up -d
 ```
 
-The image is rebuilt weekly from upstream's rolling `dev-build` release, so
-pulling gets you a miner that is at most a week old. On the next start, the new
-build replaces the one in your volume. Mining resumes right after — progress
-lives on Twitch's side, not in the container.
+A workflow checks upstream's rolling `dev-build` release once a day and only
+builds when the release actually changed, so a new image usually appears within
+a day of DevilXD publishing one — and no image is published on the days nothing
+happened. There is also a rebuild every Monday, which changes no miner but picks
+up Ubuntu security updates.
 
-If you want it fresher, either change the `cron:` line in
-[`.github/workflows/build.yml`](.github/workflows/build.yml) to run daily and
-build it yourself, or trigger the workflow by hand from the Actions tab.
+Which upstream build an image carries is recorded on the image itself, and is
+what the daily check compares against:
+
+```sh
+docker image inspect ghcr.io/dermute/twitchdropsminer-web:latest \
+    --format '{{ index .Config.Labels "io.github.dermute.tdm.upstream-build-id" }}'
+```
+
+Once pulled, the new build replaces the one in your volume on the next start.
+Mining resumes right after — progress lives on Twitch's side, not in the
+container.
+
+To build ahead of the schedule, trigger the workflow by hand from the Actions
+tab; it runs the same check, and ticking **force** builds even when upstream has
+not moved.
 
 ## Configuration
 
