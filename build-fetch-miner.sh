@@ -1,11 +1,10 @@
 #!/bin/sh
 #
-# Download the upstream Twitch Drops Miner Linux build into a directory.
+# Download the upstream Twitch Drops Miner source into a directory.
 #
-# This runs while the image is built.  The Linux (PyInstaller) build published
-# by DevilXD is downloaded from GitHub and unpacked, together with two files
-# recording which build it is and what its executable is called, which is what
-# the container uses to install it into /config.
+# This runs while the image is built. The rolling release asset identifies the
+# upstream build, while the matching Git tag supplies source for a native musl
+# PyInstaller build.
 #
 
 set -u
@@ -18,12 +17,12 @@ ARCH=
 usage() {
     echo "usage: $(basename "$0") --dest DIR [--tag TAG] [--arch ARCH]
 
-Download the upstream Twitch Drops Miner Linux build into DIR.
+Download the upstream Twitch Drops Miner source into DIR.
 
 Options:
-  --dest DIR    Directory to download the build into.  Required.
+  --dest DIR    Directory to download the source into.  Required.
   --tag TAG     Upstream release tag to download.  Default: ${TAG}
-  --arch ARCH   Architecture to download (x86_64, aarch64, amd64, arm64).
+  --arch ARCH   Architecture to build (x86_64 or amd64).
                 Default: the architecture of the running machine.
 "
     exit 2
@@ -54,7 +53,6 @@ done
 [ -n "${ARCH}" ] || ARCH="$(uname -m)"
 case "${ARCH}" in
     x86_64|amd64) ARCH=x86_64 ;;
-    aarch64|arm64) ARCH=aarch64 ;;
     *) die "unsupported architecture: ${ARCH}" ;;
 esac
 
@@ -92,7 +90,6 @@ ASSET_INFO="$(
 
 ASSET_ID="$(printf '%s' "${ASSET_INFO}" | cut -f1)"
 ASSET_UPDATED="$(printf '%s' "${ASSET_INFO}" | cut -f2)"
-ASSET_URL="$(printf '%s' "${ASSET_INFO}" | cut -f3)"
 
 # The rolling "dev-build" release keeps the same tag while its assets are
 # replaced, so the asset id and its upload time identify the build.
@@ -102,41 +99,25 @@ TMP_DIR="$(mktemp -d)" || die "could not create a temporary directory."
 # shellcheck disable=SC2064 # The directory name is known now, expand it now.
 trap "rm -rf '${TMP_DIR}'" EXIT INT TERM
 
-log "Downloading the build uploaded ${ASSET_UPDATED}..."
-curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 15 \
-    -o "${TMP_DIR}/tdm.zip" "${ASSET_URL}" \
-    || die "could not download ${ASSET_URL}."
+log "Downloading tagged source for the build uploaded ${ASSET_UPDATED}..."
+api_get "https://api.github.com/repos/${UPSTREAM_REPO}/tarball/${TAG}" \
+    > "${TMP_DIR}/tdm.tar.gz" \
+    || die "could not download source for tag '${TAG}'."
 
-unzip -q "${TMP_DIR}/tdm.zip" -d "${TMP_DIR}/unpacked" \
-    || die "could not unpack the downloaded archive."
+mkdir -p "${TMP_DIR}/unpacked" || die "could not prepare the source directory."
+tar -xzf "${TMP_DIR}/tdm.tar.gz" -C "${TMP_DIR}/unpacked" \
+    || die "could not unpack the source archive."
 
 # The archive holds a single directory named after the application.
 SRC_DIR="$(find "${TMP_DIR}/unpacked" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 [ -n "${SRC_DIR}" ] || die "unexpected layout of the downloaded archive."
 
-# Locate the executable.  It is the only executable file the archive ships, but
-# fall back to the largest file in case that ever changes.
-EXEC_NAME="$(
-    find "${SRC_DIR}" -mindepth 1 -maxdepth 1 -type f -perm -u+x -printf '%f\n' \
-        2> /dev/null | head -n 1
-)"
-if [ -z "${EXEC_NAME}" ]; then
-    EXEC_NAME="$(
-        find "${SRC_DIR}" -mindepth 1 -maxdepth 1 -type f -printf '%s\t%f\n' \
-            | sort -rn | head -n 1 | cut -f2
-    )"
-    [ -n "${EXEC_NAME}" ] || die "could not find the miner executable in the archive."
-fi
-
 mkdir -p "${DEST}" || die "could not create ${DEST}."
-cp -a "${SRC_DIR}"/. "${DEST}"/ || die "could not copy the build into ${DEST}."
-chmod +x "${DEST}/${EXEC_NAME}" || die "could not make ${EXEC_NAME} executable."
+cp -a "${SRC_DIR}"/. "${DEST}"/ || die "could not copy the source into ${DEST}."
 
-printf '%s\n' "${EXEC_NAME}" > "${DEST}/.tdm-exec" \
-    || die "could not write ${DEST}/.tdm-exec."
 printf '%s' "${BUILD_ID}" > "${DEST}/.tdm-build-id" \
     || die "could not write ${DEST}/.tdm-build-id."
 
-log "Downloaded '${EXEC_NAME}' (${ARCH}), build ${BUILD_ID}."
+log "Downloaded tagged source (${ARCH}), build ${BUILD_ID}."
 
 # vim:ft=sh:ts=4:sw=4:et:sts=4

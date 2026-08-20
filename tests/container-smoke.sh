@@ -183,6 +183,15 @@ while [ "${count}" -lt 120 ]; do
 done
 [ "${count}" -lt 120 ] || fail "miner application did not become ready"
 
+stable_pid="$(miner_pid 2> /dev/null || true)"
+sleep 10
+docker exec "${RUNTIME_CONTAINER}" kill -0 "${stable_pid}" 2> /dev/null \
+    || fail "miner process did not remain running"
+if docker logs "${RUNTIME_CONTAINER}" 2>&1 \
+    | grep -Eq 'Error relocating|\[PYI-[0-9]+:ERROR\]'; then
+    fail "miner reported a native loader or PyInstaller error"
+fi
+
 app_owner="$(docker exec "${RUNTIME_CONTAINER}" stat -c %u /config/app)"
 [ "${app_owner}" = "${SMOKE_UID}" ] \
     || fail "/config/app is owned by UID ${app_owner}, expected ${SMOKE_UID}"

@@ -7,10 +7,9 @@
 ARG BASEIMAGE_VERSION=alpine324
 
 #
-# Download the upstream Twitch Drops Miner build.
-#
-# This stage runs on the architecture of the build machine and only downloads a
-# file, so the amd64 image does not need emulation.
+# Build Twitch Drops Miner natively for Alpine/musl from the tagged upstream
+# source. The stage runs on the build machine architecture, and publishing is
+# restricted to amd64.
 #
 FROM --platform=${BUILDPLATFORM} alpine:3.24 AS miner
 
@@ -31,7 +30,17 @@ RUN \
         curl \
         findutils \
         jq \
-        unzip
+        binutils \
+        py3-aiohttp \
+        py3-pillow \
+        py3-pip \
+        py3-pyinstaller \
+        py3-truststore \
+        python3-tkinter && \
+    python3 -m pip install \
+        --break-system-packages \
+        --no-cache-dir \
+        pystray==0.19.5
 
 COPY build-fetch-miner.sh /usr/local/bin/fetch-miner.sh
 
@@ -43,9 +52,16 @@ RUN \
     GITHUB_TOKEN="$(cat /run/secrets/github_token 2> /dev/null || true)" \
     TDM_UPSTREAM_REPO="${TDM_UPSTREAM_REPO}" \
     /usr/local/bin/fetch-miner.sh \
-        --dest /opt/tdm/app \
+        --dest /opt/tdm/source \
         --tag "${TDM_RELEASE_TAG}" \
-        --arch "${TARGETARCH}"
+        --arch "${TARGETARCH}" && \
+    cd /opt/tdm/source && \
+    sed -i '/^if sys.platform == "linux":/s/^if /if False and /' build.spec && \
+    PYSTRAY_BACKEND=dummy pyinstaller build.spec && \
+    mkdir -p /opt/tdm/app && \
+    cp "dist/Twitch Drops Miner (by DevilXD)" /opt/tdm/app/ && \
+    cp manual.txt .tdm-build-id /opt/tdm/app/ && \
+    printf "%s\n" "Twitch Drops Miner (by DevilXD)" > /opt/tdm/app/.tdm-exec
 
 #
 # Build the image.
@@ -72,10 +88,6 @@ RUN \
         libxft \
         fontconfig \
         zlib \
-        # The upstream PyInstaller bundle targets glibc; Alpine uses musl.
-        gcompat \
-        # Needed by the optional tray icon support of the miner.
-        libayatana-appindicator \
         # Needed by the Openbox XDG autostart helper.
         py3-xdg \
         # Fonts for the miner labels, including emoji.
@@ -97,6 +109,8 @@ ENV \
     SELKIES_UI_TITLE="Twitch Drops Miner" \
     # The miner is an X11/Tk application.
     PIXELFLUX_WAYLAND=false \
+    # The single-app desktop has no useful system tray; avoid GTK/GI backends.
+    PYSTRAY_BACKEND=dummy \
     # This image is a locked single-application session.
     START_DOCKER=false \
     HARDEN_DESKTOP=true \

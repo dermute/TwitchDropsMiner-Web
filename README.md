@@ -5,8 +5,8 @@ your browser by [LinuxServer Selkies](https://docs.linuxserver.io/images/docker-
 No VM, desktop, or X server is required on the host. The container keeps mining
 unattended, and the interface is available whenever you need it.
 
-The image contains the official Linux build published by [DevilXD][tdm].
-Nothing is downloaded when the container starts.
+The image builds the tagged upstream source from [DevilXD][tdm] natively for
+Alpine/musl. Nothing is downloaded when the container starts.
 
 ![The miner, running in a browser tab](screenshot.png)
 
@@ -218,8 +218,8 @@ Useful build arguments:
 - `BASEIMAGE_VERSION` — LinuxServer Selkies distro tag, default `alpine324`.
 - `DOCKER_IMAGE_VERSION` / `TDM_VERSION` — image and miner version metadata.
 
-The build-time release download is the only miner download. Container startup
-does not require GitHub access.
+The tagged source download and native PyInstaller compilation happen only at
+image build time. Container startup does not require GitHub access.
 
 Run the native container smoke test after building:
 
@@ -251,8 +251,9 @@ installation.
 ## Repository contents
 
 This repository contains the container definition, launcher and build scripts,
-Selkies defaults, project icon, and documentation. The build downloads the
-upstream `Twitch.Drops.Miner.Linux.PyInstaller-<arch>.zip` asset unmodified.
+Selkies defaults, project icon, and documentation. The build resolves the
+upstream rolling release, downloads its matching Git-tagged source, and creates
+an Alpine/musl PyInstaller executable without modifying the miner source.
 
 ## Credits
 
