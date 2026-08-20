@@ -201,8 +201,8 @@ not provide a raw VNC service.
 
 ## Architectures
 
-The published image supports `linux/amd64` and `linux/arm64`, matching the
-`x86_64` and `aarch64` assets published upstream.
+The published image supports `linux/amd64`, matching the `x86_64` asset
+published upstream.
 
 ## Building locally
 

@@ -10,7 +10,7 @@ ARG BASEIMAGE_VERSION=alpine324
 # Download the upstream Twitch Drops Miner build.
 #
 # This stage runs on the architecture of the build machine and only downloads a
-# file, so building the arm64 image does not need emulation for it.
+# file, so the amd64 image does not need emulation.
 #
 FROM --platform=${BUILDPLATFORM} alpine:3.24 AS miner
 
