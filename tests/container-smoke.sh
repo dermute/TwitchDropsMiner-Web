@@ -131,6 +131,10 @@ docker run -d \
 
 wait_for_migration || fail "the packaged miner was not synchronized"
 
+docker exec "${MIGRATION_CONTAINER}" grep -q ' alpine-musl-v1$' \
+    /config/app/.tdm-build-id \
+    || fail "native Alpine package marker was not installed"
+
 after_hashes="$(
     docker exec "${MIGRATION_CONTAINER}" sh -c '
         cd /config/app

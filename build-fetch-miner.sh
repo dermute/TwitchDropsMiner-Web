@@ -93,7 +93,7 @@ ASSET_UPDATED="$(printf '%s' "${ASSET_INFO}" | cut -f2)"
 
 # The rolling "dev-build" release keeps the same tag while its assets are
 # replaced, so the asset id and its upload time identify the build.
-BUILD_ID="${TAG} ${ASSET_ID} ${ASSET_UPDATED}"
+BUILD_ID="${TAG} ${ASSET_ID} ${ASSET_UPDATED} alpine-musl-v1"
 
 TMP_DIR="$(mktemp -d)" || die "could not create a temporary directory."
 # shellcheck disable=SC2064 # The directory name is known now, expand it now.
