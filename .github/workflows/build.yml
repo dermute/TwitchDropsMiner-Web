@@ -213,30 +213,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
-
-      - name: Remove package versions containing arm64
-        if: github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          package_name="${GITHUB_REPOSITORY#*/}"
-          package_name="${package_name,,}"
-          image="${REGISTRY}/${GITHUB_REPOSITORY,,}"
-
-          gh api --paginate \
-            "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package_name}/versions?per_page=100" \
-            | jq -c '.[] | {id, digest: .name}' \
-            | while read -r version; do
-                version_id="$(printf '%s' "${version}" | jq -r .id)"
-                digest="$(printf '%s' "${version}" | jq -r .digest)"
-                reference="${image}@${digest}"
-                raw_manifest="$(docker buildx imagetools inspect --raw "${reference}")"
-                if printf '%s' "${raw_manifest}" \
-                    | jq -e '.manifests[]?.platform | select(.os == "linux" and .architecture == "arm64")' \
-                      > /dev/null; then
-                    echo "Deleting package version ${version_id} (${digest}): contains linux/arm64."
-                    gh api --method DELETE \
-                      "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package_name}/versions/${version_id}"
-                fi
-              done
