@@ -65,6 +65,20 @@ wait_for_https() {
     return 1
 }
 
+wait_for_log() {
+    container="$1"
+    pattern="$2"
+    count=0
+    while [ "${count}" -lt 120 ]; do
+        if docker logs "${container}" 2>&1 | grep -Fq "${pattern}"; then
+            return 0
+        fi
+        count=$((count + 1))
+        sleep 1
+    done
+    return 1
+}
+
 miner_pid() {
     docker exec "${RUNTIME_CONTAINER}" sh -c '
         exec_name="$(cat /config/app/.tdm-exec)"
@@ -188,13 +202,9 @@ docker exec "${RUNTIME_CONTAINER}" sh -c '
 ' || fail "single-application hardening is not active"
 
 
-docker logs "${RUNTIME_CONTAINER}" 2>&1 \
-    | grep -q "'command_enabled': (False, False)" \
-    || fail "Selkies command handling is not disabled"
+wait_for_log "${RUNTIME_CONTAINER}" "'command_enabled': (False, False)" || fail "Selkies command handling is not disabled"
 
-docker logs "${RUNTIME_CONTAINER}" 2>&1 \
-    | grep -q "'ui_sidebar_show_files': (False, False)" \
-    || fail "Selkies file-transfer UI is not disabled"
+wait_for_log "${RUNTIME_CONTAINER}" "'ui_sidebar_show_files': (False, False)" || fail "Selkies file-transfer UI is not disabled"
 
 old_pid=""
 count=0
