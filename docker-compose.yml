@@ -4,7 +4,8 @@ services:
     container_name: twitch-drops-miner
     restart: unless-stopped
     ports:
-      # Certificate-free Selkies HTTP fallback.
+      # Plain HTTP upstream; Selkies port 3000 only works behind an HTTPS
+      # reverse proxy and does not support direct browser access.
       - "3000:3000"
       # Selkies HTTPS web interface.
       - "3001:3001"

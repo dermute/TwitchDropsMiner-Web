@@ -28,9 +28,12 @@ docker run -d \
 
 Then open <https://localhost:3001> or `https://<your-nas>:3001`. Selkies
 uses a self-signed certificate by default, so the browser will show a certificate
-warning on the first visit. If accepting or installing a certificate is not
-practical, use the certificate-free fallback at <http://localhost:3000> or
-`http://<your-nas>:3000`.
+warning on the first visit.
+
+Selkies requires a browser [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts).
+Plain HTTP on port 3000 does not provide one and therefore only works as the
+unencrypted upstream behind an HTTPS reverse proxy. Direct browser connections
+to port 3000 are unsupported; use HTTPS port 3001 instead.
 
 Or use the included [`docker-compose.yml`](docker-compose.yml):
 
@@ -58,8 +61,10 @@ For HTTP Basic authentication on a trusted network, add:
 The built-in authentication is a convenience, not an internet-facing security
 gateway. Use a TLS reverse proxy with strong authentication or a VPN for remote
 access. A strict reverse proxy must be configured not to validate the
-container's self-signed upstream certificate. Port 3000 is plain HTTP, so it
-does not protect the session or Basic-auth credentials from network observers.
+container's self-signed upstream certificate when proxying port 3001. A reverse
+proxy may instead use plain HTTP port 3000 as its upstream, provided the
+browser-facing connection is HTTPS. Never expose Basic-auth credentials over a
+remote plain HTTP connection.
 
 ## Migrating from the jlesage/noVNC image
 
@@ -68,7 +73,7 @@ variables. There are no compatibility aliases.
 
 | Previous interface | Selkies interface |
 | --- | --- |
-| `http://host:5800` | `https://host:3001` or `http://host:3000` |
+| `http://host:5800` | `https://host:3001` (or an HTTPS reverse proxy backed by port 3000) |
 | `USER_ID` / `GROUP_ID` | `PUID` / `PGID` |
 | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `SELKIES_MANUAL_WIDTH` / `SELKIES_MANUAL_HEIGHT` |
 | `WEB_AUTHENTICATION_USERNAME` | `CUSTOM_USER` |
@@ -178,13 +183,14 @@ terminal with passwordless root access inside the container.
 
 | Port | Description |
 | --- | --- |
-| 3000 | Selkies HTTP web interface; certificate-free fallback |
+| 3000 | Plain HTTP upstream; only works behind an HTTPS reverse proxy |
 | 3001 | Selkies HTTPS web interface |
 
-The examples publish both ports. Prefer HTTPS on port 3001. Port 3000 avoids the
-self-signed-certificate warning but is unencrypted, making it suitable only for
-trusted networks or as an upstream behind a TLS reverse proxy. This image does
-not provide a raw VNC service.
+The examples publish both ports. Use HTTPS on port 3001 for direct browser
+access. Selkies will reject a direct connection to plain HTTP port 3000 because
+its streaming APIs require a secure context. Port 3000 only works as the
+unencrypted upstream behind an HTTPS reverse proxy. This image does not provide
+a raw VNC service.
 
 ## Operational notes
 
