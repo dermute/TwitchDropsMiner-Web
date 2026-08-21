@@ -80,11 +80,12 @@ container starts. Updating the miner therefore means pulling a new image:
 docker compose pull && docker compose up -d
 ```
 
-A workflow checks upstream's rolling `dev-build` release once a day and only
-builds when the release actually changed, so a new image usually appears within
-a day of DevilXD publishing one — and no image is published on the days nothing
-happened. There is also a rebuild every Monday, which changes no miner but picks
-up Ubuntu security updates.
+A workflow checks upstream's rolling `dev-build` release and the supported
+(`linux/amd64` and `linux/arm64`) manifests of its base image once a day. It
+builds when either changed, so a new image usually appears within a day of
+DevilXD publishing one or jlesage updating the base image — and no image is
+published on the days neither changed. There is also a rebuild every Monday,
+which picks up Ubuntu security updates.
 
 Which upstream build an image carries is recorded on the image itself, and is
 what the daily check compares against:

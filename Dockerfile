@@ -60,6 +60,8 @@ ARG DOCKER_IMAGE_VERSION=
 ARG TDM_VERSION=dev-build
 # Identifier of the upstream build in this image, recorded as a label below.
 ARG TDM_BUILD_ID=
+# Identifier of the base-image manifests used to build this image.
+ARG BASEIMAGE_BUILD_ID=
 
 WORKDIR /tmp
 
@@ -126,6 +128,7 @@ EXPOSE 5800 5900
 # published image, to know whether a newer miner has been released.
 LABEL \
       io.github.dermute.tdm.upstream-build-id="${TDM_BUILD_ID}" \
+      io.github.dermute.tdm.base-image-id="${BASEIMAGE_BUILD_ID}" \
       org.label-schema.name="TwitchDropsMiner-Web" \
       org.label-schema.description="Docker container for Twitch Drops Miner" \
       org.label-schema.version="${DOCKER_IMAGE_VERSION:-}" \

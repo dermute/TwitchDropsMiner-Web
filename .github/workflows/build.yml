@@ -29,6 +29,10 @@ env:
   WEEKLY_REBUILD_CRON: "43 4 * * 1"
   # Label the upstream build id is recorded in.
   BUILD_ID_LABEL: io.github.dermute.tdm.upstream-build-id
+  # Mutable base-image tag whose supported-platform manifests are tracked.
+  BASE_IMAGE: jlesage/baseimage-gui:ubuntu-24.04-v4
+  # Label recording the base-image manifests used to build this image.
+  BASE_IMAGE_ID_LABEL: io.github.dermute.tdm.base-image-id
 
 jobs:
   check:
@@ -40,6 +44,7 @@ jobs:
     outputs:
       build_id: ${{ steps.upstream.outputs.build_id }}
       version: ${{ steps.upstream.outputs.version }}
+      base_image_id: ${{ steps.base.outputs.build_id }}
       changed: ${{ steps.decide.outputs.changed }}
 
     steps:
@@ -82,27 +87,59 @@ jobs:
           echo "build_id=${build_id}" >> "${GITHUB_OUTPUT}"
           echo "version=${TDM_RELEASE_TAG} (${uploaded})" >> "${GITHUB_OUTPUT}"
 
-      - name: Read the upstream build of the published image
+      - name: Resolve the current base image
+        id: base
+        run: |
+          set -euo pipefail
+          build_id="$(
+            docker buildx imagetools inspect "${BASE_IMAGE}" --format '{{ json .Manifest }}' \
+              | jq -er '
+                  reduce (
+                    .manifests[]
+                    | select(
+                        .platform.os == "linux"
+                        and (.platform.architecture == "amd64" or .platform.architecture == "arm64")
+                      )
+                  ) as $manifest
+                    ({}; .["\($manifest.platform.os)/\($manifest.platform.architecture)"] = $manifest.digest)
+                  | if has("linux/amd64") and has("linux/arm64") then
+                      "linux/amd64=\(.["linux/amd64"]),linux/arm64=\(.["linux/arm64"])"
+                    else
+                      error("${BASE_IMAGE} does not provide both linux/amd64 and linux/arm64 manifests")
+                    end
+                '
+          )"
+          echo "Base image: ${build_id}"
+          echo "build_id=${build_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Read build identifiers from the published image
         id: published
         run: |
           set -uo pipefail
           image="${REGISTRY}/${GITHUB_REPOSITORY,,}:latest"
-          # An image that does not exist yet, or one built before this label was
-          # introduced, reads as unknown and causes a build.
-          build_id="$(
+          read_published_label() {
             docker buildx imagetools inspect "${image}" --format '{{ json .Image }}' 2> /dev/null \
-              | jq -r --arg label "${BUILD_ID_LABEL}" \
-                  '[.[].config.Labels[$label] // ""] | first // ""' \
+              | jq -r --arg label "$1" '
+                  [.[].config.Labels[$label] // ""]
+                  | unique
+                  | if length == 1 then .[0] else "" end
+                ' \
               || true
-          )"
-          echo "Published build: ${build_id:-<unknown>}"
+          }
+          build_id="$(read_published_label "${BUILD_ID_LABEL}")"
+          base_image_id="$(read_published_label "${BASE_IMAGE_ID_LABEL}")"
+          echo "Published upstream build: ${build_id:-<unknown>}"
+          echo "Published base image: ${base_image_id:-<unknown>}"
           echo "build_id=${build_id}" >> "${GITHUB_OUTPUT}"
+          echo "base_image_id=${base_image_id}" >> "${GITHUB_OUTPUT}"
 
       - name: Decide whether to build
         id: decide
         env:
           UPSTREAM_BUILD_ID: ${{ steps.upstream.outputs.build_id }}
           PUBLISHED_BUILD_ID: ${{ steps.published.outputs.build_id }}
+          BASE_IMAGE_ID: ${{ steps.base.outputs.build_id }}
+          PUBLISHED_BASE_IMAGE_ID: ${{ steps.published.outputs.base_image_id }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           FORCE: ${{ inputs.force }}
@@ -120,9 +157,13 @@ jobs:
             reason="the published image does not record an upstream build"
           elif [ "${PUBLISHED_BUILD_ID}" != "${UPSTREAM_BUILD_ID}" ]; then
             reason="upstream published a new build"
+          elif [ -z "${PUBLISHED_BASE_IMAGE_ID}" ]; then
+            reason="the published image does not record its base image"
+          elif [ "${PUBLISHED_BASE_IMAGE_ID}" != "${BASE_IMAGE_ID}" ]; then
+            reason="the base image changed"
           else
             changed=false
-            reason="upstream has not published a new build"
+            reason="the upstream and base image have not changed"
           fi
 
           echo "changed=${changed}" >> "${GITHUB_OUTPUT}"
@@ -134,10 +175,10 @@ jobs:
               echo "### Skipping the build — ${reason}"
             fi
             echo
-            echo "| | Upstream build |"
-            echo "| --- | --- |"
-            echo "| Latest | \`${UPSTREAM_BUILD_ID}\` |"
-            echo "| Published | \`${PUBLISHED_BUILD_ID:-unknown}\` |"
+            echo "| | Upstream build | Base image |"
+            echo "| --- | --- | --- |"
+            echo "| Latest | \`${UPSTREAM_BUILD_ID}\` | \`${BASE_IMAGE_ID}\` |"
+            echo "| Published | \`${PUBLISHED_BUILD_ID:-unknown}\` | \`${PUBLISHED_BASE_IMAGE_ID:-unknown}\` |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   build:
@@ -192,6 +233,7 @@ jobs:
             TDM_RELEASE_TAG=${{ env.TDM_RELEASE_TAG }}
             TDM_BUILD_ID=${{ needs.check.outputs.build_id }}
             TDM_VERSION=${{ needs.check.outputs.version }}
+            BASEIMAGE_BUILD_ID=${{ needs.check.outputs.base_image_id }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha
