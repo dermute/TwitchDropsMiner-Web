@@ -1,12 +1,13 @@
 # TwitchDropsMiner-Web
 
-[Twitch Drops Miner][tdm] in a Docker container, with its window streamed to
-your browser by [LinuxServer Selkies](https://docs.linuxserver.io/images/docker-baseimage-selkies/).
-No VM, desktop, or X server is required on the host. The container keeps mining
-unattended, and the interface is available whenever you need it.
+[Twitch Drops Miner][tdm] in a Docker container, with its window served to your
+web browser. No VM, no desktop, no X server on the host — just a container that
+keeps mining 24/7 and a tab you open when you want to look at it.
 
-The image builds the tagged upstream source from [DevilXD][tdm] natively for
-Alpine/musl. Nothing is downloaded when the container starts.
+The image ships the official Linux build published by [DevilXD][tdm] and runs it
+on a virtual screen that is streamed to the browser over [noVNC][novnc]. Nothing
+is downloaded when a container starts. The GUI plumbing is provided by
+[jlesage/baseimage-gui][baseimage].
 
 ![The miner, running in a browser tab](screenshot.png)
 
@@ -16,258 +17,193 @@ Alpine/musl. Nothing is downloaded when the container starts.
 docker run -d \
     --name twitch-drops-miner \
     --restart unless-stopped \
-    -p 3000:3000 \
-    -p 3001:3001 \
-    --shm-size 1g \
+    -p 5800:5800 \
     -v /docker/appdata/twitch-drops-miner:/config \
-    -e PUID=1000 \
-    -e PGID=1000 \
     -e TZ=Europe/Berlin \
     ghcr.io/dermute/twitchdropsminer-web:latest
 ```
 
-Then open <https://localhost:3001> or `https://<your-nas>:3001`. Selkies
-uses a self-signed certificate by default, so the browser will show a certificate
-warning on the first visit.
+Then open <http://localhost:5800> (or `http://<your-nas>:5800`).
 
-Selkies requires a browser [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts).
-Plain HTTP on port 3000 does not provide one and therefore only works as the
-unencrypted upstream behind an HTTPS reverse proxy. Direct browser connections
-to port 3000 are unsupported; use HTTPS port 3001 instead.
-
-Or use the included [`docker-compose.yml`](docker-compose.yml):
+Or with Docker Compose — see [`docker-compose.yml`](docker-compose.yml):
 
 ```sh
 docker compose up -d
 ```
-
-## Security
-
-The session controls a miner authenticated to your Twitch account. Do not expose
-it directly to the internet.
-
-This image enables Selkies' single-application hardening by default. Terminals,
-passwordless sudo, desktop application launchers, file transfers, sharing,
-microphone, audio, and gamepad support are disabled. Clipboard and fullscreen
-controls remain available.
-
-For HTTP Basic authentication on a trusted network, add:
-
-```sh
--e CUSTOM_USER=admin \
--e PASSWORD='choose-a-strong-password'
-```
-
-The built-in authentication is a convenience, not an internet-facing security
-gateway. Use a TLS reverse proxy with strong authentication or a VPN for remote
-access. A strict reverse proxy must be configured not to validate the
-container's self-signed upstream certificate when proxying port 3001. A reverse
-proxy may instead use plain HTTP port 3000 as its upstream, provided the
-browser-facing connection is HTTPS. Never expose Basic-auth credentials over a
-remote plain HTTP connection.
-
-## Migrating from the jlesage/noVNC image
-
-This release intentionally changes the web service and LinuxServer base-image
-variables. There are no compatibility aliases.
-
-| Previous interface | Selkies interface |
-| --- | --- |
-| `http://host:5800` | `https://host:3001` (or an HTTPS reverse proxy backed by port 3000) |
-| `USER_ID` / `GROUP_ID` | `PUID` / `PGID` |
-| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `SELKIES_MANUAL_WIDTH` / `SELKIES_MANUAL_HEIGHT` |
-| `WEB_AUTHENTICATION_USERNAME` | `CUSTOM_USER` |
-| `WEB_AUTHENTICATION_PASSWORD` | `PASSWORD` |
-| `KEEP_APP_RUNNING` | `RESTART_APP` |
-| `SECURE_CONNECTION` | Removed; port 3001 is always HTTPS |
-| Port 5900 / `VNC_PASSWORD` | Removed; Selkies has no raw VNC endpoint |
-| `DARK_MODE` | Removed; it did not affect the miner's own Tk widgets |
-
-Keep the same `/config` mount. The miner remains in `/config/app`, so Twitch
-credentials, priorities, settings, and cache migrate in place. Old
-jlesage-specific files elsewhere under `/config` are ignored and may be
-removed after the new container is working.
 
 ## Logging in
 
-The miner uses Twitch's device-code flow, so it does not need a browser inside
+The miner logs in with Twitch's device code flow, so no browser is needed inside
 the container:
 
-1. Open the Selkies interface. The login tab shows a link and an eight-character
-   code.
-2. On any device, open <https://www.twitch.tv/activate> and enter the code.
-3. The miner detects the session and starts fetching campaigns.
+1. Open the web interface. The login tab shows a link and an 8 character code.
+2. On any device, go to <https://www.twitch.tv/activate> and enter the code.
+3. The miner picks up the session and starts fetching campaigns.
 
-The session is stored in `cookies.jar` inside the `/config` volume, so this
-is normally a one-time step.
+The session is stored in `cookies.jar` inside your `/config` volume, so this is
+a one-time step.
 
 > [!CAUTION]
 > `cookies.jar` grants access to your Twitch account without a password. Treat
-> the `/config` volume and its backups as secrets.
+> the `/config` volume — and any backup of it — as a secret.
 
 > [!TIP]
-> Link your Twitch account to the relevant game accounts on the
+> Link your Twitch account to the game accounts on the
 > [campaigns page](https://www.twitch.tv/drops/campaigns), otherwise most
 > campaigns cannot be mined.
 
-## Persistent data
+## Where your data lives
 
-Everything the miner writes remains in the `/config` volume:
+Everything the miner writes is inside the `/config` volume:
 
-| Path | Contents |
-| --- | --- |
-| `/config/app/` | Miner executable and its persistent files |
-| `/config/app/settings.json` | Priority list, mining mode, and GUI settings |
-| `/config/app/cookies.jar` | Twitch login session |
-| `/config/app/cache/` | Cached campaign and game data |
-| `/config/app/log.txt` | Runtime log when `TDM_ARGS` contains `--log` |
-| `/config/.config/` | Selkies/Openbox user configuration |
+| Path                      | Contents                                        |
+| ------------------------- | ----------------------------------------------- |
+| `/config/app/`            | The miner itself, plus all files it creates      |
+| `/config/app/settings.json` | Priority list, mining mode, all GUI settings   |
+| `/config/app/cookies.jar` | Twitch login session                             |
+| `/config/app/cache/`      | Cached campaign and game data                    |
+| `/config/app/log.txt`     | Runtime log, only written when `TDM_ARGS` has `--log` |
+| `/config/xdg/`            | XDG directories of the container user            |
 
-The miner writes next to its executable, so the executable is synchronized from
-the immutable image into `/config/app`. On an image update, only files shipped
-with the image are replaced. Settings, cookies, cache, and logs are explicitly
-preserved.
+The miner stores its files next to its own executable, so the executable has to
+live in the volume. It is not downloaded there: the image carries it in
+`/opt/tdm/app`, and each start copies it into `/config/app` if what is there
+does not match the image. Everything the miner itself created is left alone, so
+settings and the login survive both restarts and image updates.
 
-## Updating
+## Staying up-to-date
 
-The image is self-contained. Update it by pulling and recreating the container:
+The image is self-contained — miner included — and nothing is downloaded when a
+container starts. Updating the miner therefore means pulling a new image:
 
 ```sh
-docker compose pull
-docker compose up -d
+docker compose pull && docker compose up -d
 ```
 
-A workflow checks DevilXD's rolling `dev-build` release daily and publishes
-only when the upstream assets change. A weekly rebuild picks up Alpine and
-LinuxServer base-image updates.
+A workflow checks upstream's rolling `dev-build` release once a day and only
+builds when the release actually changed, so a new image usually appears within
+a day of DevilXD publishing one — and no image is published on the days nothing
+happened. There is also a rebuild every Monday, which changes no miner but picks
+up Ubuntu security updates.
 
-Inspect the upstream build carried by an image with:
+Which upstream build an image carries is recorded on the image itself, and is
+what the daily check compares against:
 
 ```sh
 docker image inspect ghcr.io/dermute/twitchdropsminer-web:latest \
     --format '{{ index .Config.Labels "io.github.dermute.tdm.upstream-build-id" }}'
 ```
 
-Once the new image is pulled, its packaged miner replaces the old executable on
-container start. Mining progress is maintained by Twitch.
+Once pulled, the new build replaces the one in your volume on the next start.
+Mining resumes right after — progress lives on Twitch's side, not in the
+container.
+
+To build ahead of the schedule, trigger the workflow by hand from the Actions
+tab; it runs the same check, and ticking **force** builds even when upstream has
+not moved.
 
 ## Configuration
 
-### TwitchDropsMiner-Web
+### This image
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `TDM_ARGS` | `-v` | Miner arguments. `-v` reports warnings, `-vv` info, `-vvvv` debug, and `--log` writes `log.txt`. |
-| `TDM_RESTART_DELAY` | `300` | Delay in seconds before Selkies restarts the miner after a failure. |
-| `TDM_DATA_DIR` | `/config/app` | Persistent miner installation and data directory. |
+| Variable            | Default       | Description                                                                                   |
+| ------------------- | ------------- | --------------------------------------------------------------------------------------------- |
+| `TDM_ARGS`          | `-v`          | Arguments for the miner. `-v` reports warnings, `-vv` info, `-vvvv` debug; `--log` also writes `log.txt`. |
+| `TDM_RESTART_DELAY` | `300`         | Seconds to wait before restarting after the miner failed.                                      |
+| `TDM_DATA_DIR`      | `/config/app` | Where the miner is installed.                                                                  |
 
-### LinuxServer and Selkies
+### Base image
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `PUID` / `PGID` | `911` / `911` | Owner of files under `/config`; normally set both to the host user's IDs. |
-| `TZ` | `Etc/UTC` | Timezone used by the miner's timestamps. |
-| `CUSTOM_USER` | `abc` | Username used when `PASSWORD` enables Basic authentication. |
-| `PASSWORD` | unset | Enables Basic authentication when set. |
-| `SELKIES_MANUAL_WIDTH` / `SELKIES_MANUAL_HEIGHT` | browser-controlled | Locks the virtual screen to a fixed size when supplied. |
-| `RESTART_APP` | `true` | Restarts the launcher if the miner exits. |
-| `PIXELFLUX_WAYLAND` | `false` | Keeps the Tk application on the supported X11/Openbox path. |
-| `HARDEN_DESKTOP` / `HARDEN_OPENBOX` | `true` | Locks the browser session to the miner. |
-| `SELKIES_ENABLE_SHARING` | `false` | Prevents collaborative and view-only session links. |
+The most useful ones — the base image supports
+[many more][baseimage-env]:
 
-The Selkies base supports additional settings documented in its
-[image reference][baseimage-env]. Overriding the hardening defaults can expose a
-terminal with passwordless root access inside the container.
+| Variable                       | Default    | Description                                                        |
+| ------------------------------ | ---------- | ------------------------------------------------------------------ |
+| `USER_ID` / `GROUP_ID`         | `1000`     | Owner of the files in `/config`.                                    |
+| `TZ`                           | `Etc/UTC`  | Timezone, affects the timestamps shown by the miner.                |
+| `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` | `1920` / `1080` | Size of the virtual screen. `1280x768` is plenty for the miner. |
+| `WEB_AUTHENTICATION`           | `0`        | Put a login in front of the web interface.                          |
+| `WEB_AUTHENTICATION_USERNAME` / `WEB_AUTHENTICATION_PASSWORD` | | Credentials for it. |
+| `SECURE_CONNECTION`            | `0`        | Serve the web interface over HTTPS.                                 |
+| `VNC_PASSWORD`                 | (unset)    | Password for VNC clients on port 5900.                              |
+| `KEEP_APP_RUNNING`             | `1`        | Restart the miner when it exits. Set to `0` to stop the container instead. |
+| `DARK_MODE`                    | `0`        | Dark GTK/Qt theme. The miner draws its own Tk widgets, so this changes little. |
 
 ### Ports
 
-| Port | Description |
-| --- | --- |
-| 3000 | Plain HTTP upstream; only works behind an HTTPS reverse proxy |
-| 3001 | Selkies HTTPS web interface |
+| Port | Description                                            |
+| ---- | ------------------------------------------------------ |
+| 5800 | Web interface. This is the one you want.               |
+| 5900 | Raw VNC, for a native client. Not published by default. |
 
-The examples publish both ports. Use HTTPS on port 3001 for direct browser
-access. Selkies will reject a direct connection to plain HTTP port 3000 because
-its streaming APIs require a secure context. Port 3000 only works as the
-unencrypted upstream behind an HTTPS reverse proxy. This image does not provide
-a raw VNC service.
+## Notes
 
-## Operational notes
-
-- **Only one container per volume.** The miner exits with code 3 if another
-  instance holds the lock on the same directory.
-- **Use local storage for `/config`.** The lock relies on `fcntl`, which is
-  unreliable on NFS and SMB. Use a local bind mount or Docker volume.
-- **Do not watch Twitch on the mining account.** Upstream warns that concurrently
-  watching with the same account can confuse drop progression.
-- **CAPTCHA.** If Twitch requests a CAPTCHA, the miner exits with code 1. The
-  container waits `TDM_RESTART_DELAY` before trying again.
-- **Shared memory.** The examples allocate 1 GB, matching LinuxServer's Selkies
-  recommendations and leaving room for the streamed desktop.
+- **Only one container per volume.** The miner takes a lock on its directory and
+  exits with code 3 if a second instance uses the same `/config`.
+- **Use local storage for `/config`.** The lock relies on `fcntl` locking, which
+  is unreliable on NFS and SMB mounts — a common trap on a NAS. A local Docker
+  volume or a directory on local disk is fine.
+- **Do not watch Twitch on the mining account.** Upstream warns that watching a
+  stream in a browser with the same account confuses the drop progression.
+- **Do not expose port 5800 to the internet as-is.** Anyone who reaches it
+  controls a browser-visible session that is logged into your Twitch account. Use
+  `WEB_AUTHENTICATION`, a reverse proxy with authentication, or a VPN.
+- **CAPTCHA.** If Twitch asks for a CAPTCHA during login, the miner exits with
+  code 1. The container waits `TDM_RESTART_DELAY` seconds and tries again rather
+  than looping; log in again through the web interface when that happens.
 
 ## Architectures
 
-The published image supports `linux/amd64`, matching the `x86_64` asset
-published upstream.
+`linux/amd64` and `linux/arm64`, matching the `x86_64` and `aarch64` builds
+upstream publishes.
 
-## Building locally
+## Building it yourself
 
 ```sh
 docker build -t twitchdropsminer-web .
 ```
 
+The build downloads the miner from the upstream release and copies it into the
+image, in a stage of its own — that download is the only network access the
+build needs beyond the base image.
+
 Useful build arguments:
 
-- `TDM_RELEASE_TAG` — upstream release tag, default `dev-build`.
-- `TDM_BUILD_ID` — upstream build identifier and cache key; CI supplies the
-  current release asset IDs.
-- `BASEIMAGE_VERSION` — LinuxServer Selkies distro tag, default `alpine324`.
-- `DOCKER_IMAGE_VERSION` / `TDM_VERSION` — image and miner version metadata.
-
-The tagged source download and native PyInstaller compilation happen only at
-image build time. Container startup does not require GitHub access.
-
-Run the native container smoke test after building:
-
-```sh
-tests/container-smoke.sh twitchdropsminer-web
-```
+- `TDM_RELEASE_TAG` — upstream release to take the miner from. Default
+  `dev-build`.
+- `TDM_BUILD_ID` — an arbitrary string identifying the upstream build. Change it
+  to stop a rebuild from reusing the cached download layer; the workflow sets it
+  to the current upstream asset ids.
+- `BASEIMAGE_VERSION` — tag of `jlesage/baseimage-gui` to build on.
+- `DOCKER_IMAGE_VERSION` / `TDM_VERSION` — version strings for the image labels
+  and the title bar.
 
 ## Troubleshooting
 
-**The browser reports a certificate error.** This is expected for Selkies'
-self-signed certificate. Accept it on a trusted local network or use a reverse
-proxy with a trusted certificate.
+**The web interface is up but the window is empty.** The miner is probably
+restarting. Check `docker logs twitch-drops-miner`.
 
-**The web interface is available but the miner is absent.** Check
-`docker logs twitch-drops-miner`. Selkies' watchdog may be waiting for
-`TDM_RESTART_DELAY` after an application failure.
+**The miner is older than the one in the image.** The volume is only synced at
+start, so restart the container after pulling a new image.
 
-**The miner is older than the image.** Pull and recreate or restart the
-container; the packaged build is synchronized only during application startup.
+**Reset everything.** Stop the container and delete the `/config` volume. The
+next start reinstalls the miner and asks you to log in again.
 
-**The interface is slow at a large resolution.** Set
-`SELKIES_MANUAL_WIDTH=1280` and `SELKIES_MANUAL_HEIGHT=768`, or reduce the
-browser window size.
+## What this repository actually contains
 
-**Reset everything.** Stop the container and remove its `/config` volume. This
-deletes the Twitch session and all settings; the next start performs a clean
-installation.
-
-## Repository contents
-
-This repository contains the container definition, launcher and build scripts,
-Selkies defaults, project icon, and documentation. The build resolves the
-upstream rolling release, downloads its matching Git-tagged source, and creates
-an Alpine/musl PyInstaller executable without modifying the miner source.
+A Dockerfile, three shell scripts, and a favicon. The only thing taken from the
+upstream project is the release asset
+`Twitch.Drops.Miner.Linux.PyInstaller-<arch>.zip` — a single executable and its
+`manual.txt` — which the build downloads unmodified from the `dev-build` release
+and copies into the image. The favicon is converted from the upstream
+`icons/pickaxe.ico`.
 
 ## Credits
 
-- [DevilXD/TwitchDropsMiner][tdm] — the miner itself.
-- [LinuxServer Selkies][baseimage] — the browser-native desktop, web service,
-  Openbox/Xvfb stack, and container lifecycle.
-- [selkies-project/selkies](https://github.com/selkies-project/selkies) — the
-  underlying web-native remote desktop technology.
+- [DevilXD/TwitchDropsMiner][tdm] — the actual miner. This repository only
+  packages it; all mining logic, the GUI, and the icon are theirs.
+- [jlesage/docker-baseimage-gui][baseimage] — the X server, noVNC and supervisor
+  plumbing that make the GUI reachable from a browser.
 
 ## AI attribution
 
@@ -328,8 +264,9 @@ Twitch Drops Miner itself is distributed under its own
 [MIT license](https://github.com/DevilXD/TwitchDropsMiner/blob/master/LICENSE)
 and is redistributed here unmodified, exactly as published upstream.
 
-This project is not affiliated with Twitch, DevilXD, LinuxServer.io, or the Selkies project.
+This project is not affiliated with Twitch, DevilXD, or jlesage.
 
 [tdm]: https://github.com/DevilXD/TwitchDropsMiner
-[baseimage]: https://github.com/linuxserver/docker-baseimage-selkies
-[baseimage-env]: https://docs.linuxserver.io/images/docker-baseimage-selkies/
+[baseimage]: https://github.com/jlesage/docker-baseimage-gui
+[baseimage-env]: https://github.com/jlesage/docker-baseimage-gui#environment-variables
+[novnc]: https://github.com/novnc/noVNC

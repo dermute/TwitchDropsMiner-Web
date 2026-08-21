@@ -4,25 +4,21 @@ services:
     container_name: twitch-drops-miner
     restart: unless-stopped
     ports:
-      # Plain HTTP upstream; Selkies port 3000 only works behind an HTTPS
-      # reverse proxy and does not support direct browser access.
-      - "3000:3000"
-      # Selkies HTTPS web interface.
-      - "3001:3001"
-    shm_size: "1gb"
+      # Web interface.
+      - "5800:5800"
     volumes:
       - ./config:/config
     environment:
-      # Owner of the files in /config.
-      - PUID=1000
-      - PGID=1000
       # Timezone, used for the timestamps shown by the miner.
       - TZ=Europe/Berlin
-      # Optional HTTP Basic authentication. Recommended on trusted networks;
-      # use a secure reverse proxy or VPN for access over the internet.
-      # - CUSTOM_USER=admin
-      # - PASSWORD=changeme
-      # Optional fixed virtual screen size. Selkies otherwise follows the
-      # browser's viewport.
-      # - SELKIES_MANUAL_WIDTH=1280
-      # - SELKIES_MANUAL_HEIGHT=768
+      # Owner of the files in /config.
+      - USER_ID=1000
+      - GROUP_ID=1000
+      # Size of the virtual screen the miner is drawn on.
+      - DISPLAY_WIDTH=1280
+      - DISPLAY_HEIGHT=768
+      # Protect the web interface with a login.  Strongly recommended as soon as
+      # the container is reachable by anything but you.
+      # - WEB_AUTHENTICATION=1
+      # - WEB_AUTHENTICATION_USERNAME=admin
+      # - WEB_AUTHENTICATION_PASSWORD=changeme
