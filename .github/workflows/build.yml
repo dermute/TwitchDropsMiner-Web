@@ -30,7 +30,7 @@ env:
   # Label the upstream build id is recorded in.
   BUILD_ID_LABEL: io.github.dermute.tdm.upstream-build-id
   # Mutable base-image tag whose supported-platform manifests are tracked.
-  BASE_IMAGE: jlesage/baseimage-gui:ubuntu-24.04-v4
+  BASE_IMAGE: jlesage/baseimage-gui:ubuntu-26.04-v4
   # Label recording the base-image manifests used to build this image.
   BASE_IMAGE_ID_LABEL: io.github.dermute.tdm.base-image-id
 

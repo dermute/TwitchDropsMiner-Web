@@ -4,7 +4,7 @@
 # https://github.com/dermute/TwitchDropsMiner-Web
 #
 
-ARG BASEIMAGE_VERSION=ubuntu-24.04-v4
+ARG BASEIMAGE_VERSION=ubuntu-26.04-v4
 
 #
 # Download the upstream Twitch Drops Miner build.

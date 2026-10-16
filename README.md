@@ -175,7 +175,8 @@ Useful build arguments:
 - `TDM_BUILD_ID` — an arbitrary string identifying the upstream build. Change it
   to stop a rebuild from reusing the cached download layer; the workflow sets it
   to the current upstream asset ids.
-- `BASEIMAGE_VERSION` — tag of `jlesage/baseimage-gui` to build on.
+- `BASEIMAGE_VERSION` — tag of `jlesage/baseimage-gui` to build on. Default
+  `ubuntu-26.04-v4`.
 - `DOCKER_IMAGE_VERSION` / `TDM_VERSION` — version strings for the image labels
   and the title bar.
 
